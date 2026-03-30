@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/client";
-import { calculateXp, xpProgress, xpRequiredForLevel } from "@/lib/xp";
-import type { Quest, Profile, Stat, StatName } from "@/lib/types";
+import { calculateXp, xpRequiredForLevel } from "@/lib/xp";
+import { incrementStreak, checkAndAwardFreeze } from "@/lib/streak";
+import type { Quest, Profile, Stat } from "@/lib/types";
 
 interface CompleteQuestInput {
   quest: Quest;
@@ -20,6 +21,10 @@ interface CompleteQuestResult {
   newStatLevel: number;
   characterLevelUp: boolean;
   newCharacterLevel: number;
+  streakIncremented: boolean;
+  newStreakDays: number;
+  newMultiplier: number;
+  freezeAwarded: boolean;
 }
 
 export async function completeQuest(
@@ -32,10 +37,16 @@ export async function completeQuest(
   const stat = stats.find((s) => s.stat_name === quest.stat);
   if (!stat) throw new Error(`Stat ${quest.stat} not found`);
 
-  // Calculate XP
+  // Increment streak first (so the multiplier applies to this quest)
+  const { newStreakDays, newMultiplier } = await incrementStreak(profile);
+
+  // Check for freeze award
+  const freezeAwarded = await checkAndAwardFreeze(profile.id, newStreakDays);
+
+  // Calculate XP using the updated streak
   const xpResult = calculateXp({
     baseXp: quest.base_xp,
-    streakDays: profile.streak_days,
+    streakDays: newStreakDays,
     sameIntensityCount,
     actualTonnage: input.actualTonnage,
     baselineTonnage: input.baselineTonnage ?? stat.baseline_tonnage ?? undefined,
@@ -44,7 +55,7 @@ export async function completeQuest(
   // Check for stat level-up
   const oldStatLevel = stat.level;
   let newStatXp = stat.current_xp + xpResult.finalXp;
-  let newStatTotalXp = stat.total_xp + xpResult.finalXp;
+  const newStatTotalXp = stat.total_xp + xpResult.finalXp;
   let newStatLevel = stat.level;
   let statLevelUp = false;
 
@@ -55,21 +66,15 @@ export async function completeQuest(
     statLevelUp = true;
   }
 
-  // Check for character level-up
+  // Character level from aggregate XP
   const newProfileTotalXp = profile.total_xp + xpResult.finalXp;
-  const oldCharLevel = profile.character_level;
-  let newCharLevel = oldCharLevel;
-  let charXpAccum = 0;
-
-  // Recalculate character level from scratch using total XP across all stats
   const allStatTotalXps = stats.map((s) =>
     s.stat_name === quest.stat ? newStatTotalXp : s.total_xp
   );
   const aggregateXp = allStatTotalXps.reduce((sum, xp) => sum + xp, 0);
 
-  // Simple level calculation from aggregate
+  let newCharLevel = 0;
   let cumXp = 0;
-  newCharLevel = 0;
   while (true) {
     const next = Math.floor(100 * Math.pow(newCharLevel + 1, 1.5));
     if (cumXp + next > aggregateXp) break;
@@ -78,7 +83,8 @@ export async function completeQuest(
   }
   if (newCharLevel < 1) newCharLevel = 1;
 
-  const characterLevelUp = newCharLevel > oldCharLevel;
+  const characterLevelUp = newCharLevel > profile.character_level;
+  const streakIncremented = newStreakDays > profile.streak_days;
 
   // Write quest log
   const { error: logError } = await supabase.from("quest_logs").insert({
@@ -104,19 +110,18 @@ export async function completeQuest(
       current_xp: newStatXp,
       total_xp: newStatTotalXp,
       level: newStatLevel,
-      skill_points_available: stat.skill_points_available + (newStatLevel - oldStatLevel),
+      skill_points_available:
+        stat.skill_points_available + (newStatLevel - oldStatLevel),
     })
     .eq("id", stat.id);
   if (statError) throw statError;
 
-  // Update profile
-  const today = new Date().toISOString().split("T")[0];
+  // Update profile (streak already updated by incrementStreak)
   const { error: profileError } = await supabase
     .from("profiles")
     .update({
       total_xp: newProfileTotalXp,
       character_level: newCharLevel,
-      last_active_date: today,
     })
     .eq("id", profile.id);
   if (profileError) throw profileError;
@@ -127,5 +132,9 @@ export async function completeQuest(
     newStatLevel,
     characterLevelUp,
     newCharacterLevel: newCharLevel,
+    streakIncremented,
+    newStreakDays,
+    newMultiplier,
+    freezeAwarded,
   };
 }

@@ -21,6 +21,7 @@ export interface Profile {
   total_xp: number;
   streak_days: number;
   streak_multiplier: number;
+  streak_freezes: number;
   last_active_date: string | null;
   active_title: string | null;
   created_at: string;

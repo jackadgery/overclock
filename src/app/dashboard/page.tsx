@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { getProfile, getStats, getQuestLogs, getQuests } from "@/lib/db";
+import { evaluateStreak } from "@/lib/streak";
 import { xpProgress } from "@/lib/xp";
 import {
   STAT_INFO,
@@ -15,6 +16,7 @@ import { LogoutButton } from "./logout-button";
 import { RadarChart } from "@/components/radar-chart";
 import { XpBar } from "@/components/xp-bar";
 import { TodayStats } from "@/components/today-stats";
+import { StreakBanner } from "@/components/streak-banner";
 import Link from "next/link";
 
 const STAT_ORDER: StatName[] = ["STR", "END", "DEX", "INT", "WIS", "CHA"];
@@ -25,6 +27,7 @@ export default function DashboardPage() {
   const [recentLogs, setRecentLogs] = useState<QuestLog[]>([]);
   const [quests, setQuests] = useState<Quest[]>([]);
   const [loading, setLoading] = useState(true);
+  const [streakMessage, setStreakMessage] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -35,7 +38,21 @@ export default function DashboardPage() {
           getQuestLogs(50),
           getQuests(),
         ]);
-        setProfile(p);
+
+        // Evaluate streak on dashboard load
+        const evalResult = await evaluateStreak(p);
+        if (evalResult.message) {
+          setStreakMessage(evalResult.message);
+        }
+
+        // Reload profile after streak evaluation (may have changed)
+        if (evalResult.streakBroken || evalResult.freezeUsed) {
+          const updatedProfile = await getProfile();
+          setProfile(updatedProfile);
+        } else {
+          setProfile(p);
+        }
+
         setStats(s);
         setRecentLogs(logs);
         setQuests(q);
@@ -73,9 +90,11 @@ export default function DashboardPage() {
     (name) => stats.find((s) => s.stat_name === name)!
   ).filter(Boolean);
 
-  // Find highest and lowest stats for the insight
   const maxStat = sortedStats.reduce((a, b) => (a.level > b.level ? a : b));
   const minStat = sortedStats.reduce((a, b) => (a.level < b.level ? a : b));
+
+  // Type assertion for streak_freezes since it was added in Phase 4
+  const freezes = (profile as Profile & { streak_freezes?: number }).streak_freezes ?? 0;
 
   return (
     <div className="min-h-screen p-4 pb-20">
@@ -98,6 +117,9 @@ export default function DashboardPage() {
           <LogoutButton />
         </div>
 
+        {/* Streak banner (warnings, death tax, freezes) */}
+        <StreakBanner profile={profile} evalMessage={streakMessage} />
+
         {/* Level + Streak row */}
         <div className="grid grid-cols-2 gap-3 mb-4">
           {/* System Level */}
@@ -118,7 +140,8 @@ export default function DashboardPage() {
               />
             </div>
             <div className="text-[10px] font-mono text-neutral-600 mt-1">
-              {charProgress.current.toLocaleString()} / {charProgress.required.toLocaleString()} XP
+              {charProgress.current.toLocaleString()} /{" "}
+              {charProgress.required.toLocaleString()} XP
             </div>
           </div>
 
@@ -130,11 +153,19 @@ export default function DashboardPage() {
             <div className="text-3xl font-bold font-mono text-oc-green leading-none">
               {profile.streak_days}
             </div>
-            <div className="text-[10px] font-mono text-neutral-600 mt-2">
-              Multiplier
-            </div>
-            <div className="text-sm font-mono text-oc-amber font-bold">
-              {profile.streak_multiplier}×
+            <div className="flex items-center justify-between mt-2">
+              <div className="text-[10px] font-mono text-neutral-600">
+                Multiplier{" "}
+                <span className="text-oc-amber font-bold">
+                  {profile.streak_multiplier}×
+                </span>
+              </div>
+              <div className="text-[10px] font-mono text-neutral-600">
+                Freezes{" "}
+                <span className="text-oc-cyan">
+                  {freezes}/{2}
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -150,7 +181,6 @@ export default function DashboardPage() {
             Subsystem Map
           </div>
           <RadarChart stats={stats} size={260} />
-          {/* Quick insight */}
           {maxStat.level > minStat.level && (
             <div className="text-[10px] font-mono text-neutral-500 text-center mt-1">
               <span style={{ color: STAT_INFO[maxStat.stat_name].colour }}>
@@ -220,10 +250,13 @@ export default function DashboardPage() {
                     </div>
                     <div className="flex items-center gap-2 shrink-0 ml-2">
                       <span className="text-neutral-600 text-[10px]">
-                        {new Date(log.completed_at).toLocaleDateString("en-AU", {
-                          day: "numeric",
-                          month: "short",
-                        })}
+                        {new Date(log.completed_at).toLocaleDateString(
+                          "en-AU",
+                          {
+                            day: "numeric",
+                            month: "short",
+                          }
+                        )}
                       </span>
                       <span className="text-oc-amber w-14 text-right">
                         +{log.xp_earned}
