@@ -1,29 +1,44 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { getProfile, getStats, getQuestLogs } from "@/lib/db";
+import { getProfile, getStats, getQuestLogs, getQuests } from "@/lib/db";
 import { xpProgress } from "@/lib/xp";
-import { STAT_INFO, type Profile, type Stat, type QuestLog, type StatName } from "@/lib/types";
+import {
+  STAT_INFO,
+  type Profile,
+  type Stat,
+  type QuestLog,
+  type Quest,
+  type StatName,
+} from "@/lib/types";
 import { LogoutButton } from "./logout-button";
+import { RadarChart } from "@/components/radar-chart";
+import { XpBar } from "@/components/xp-bar";
+import { TodayStats } from "@/components/today-stats";
 import Link from "next/link";
+
+const STAT_ORDER: StatName[] = ["STR", "END", "DEX", "INT", "WIS", "CHA"];
 
 export default function DashboardPage() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [stats, setStats] = useState<Stat[]>([]);
   const [recentLogs, setRecentLogs] = useState<QuestLog[]>([]);
+  const [quests, setQuests] = useState<Quest[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function load() {
       try {
-        const [p, s, logs] = await Promise.all([
+        const [p, s, logs, q] = await Promise.all([
           getProfile(),
           getStats(),
-          getQuestLogs(10),
+          getQuestLogs(50),
+          getQuests(),
         ]);
         setProfile(p);
         setStats(s);
         setRecentLogs(logs);
+        setQuests(q);
       } catch (err) {
         console.error("Failed to load dashboard:", err);
       } finally {
@@ -36,8 +51,8 @@ export default function DashboardPage() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="font-mono text-xs text-neutral-500">
-          Loading system diagnostics...
+        <div className="font-mono text-xs text-neutral-500 animate-pulse">
+          Initialising system diagnostics...
         </div>
       </div>
     );
@@ -54,119 +69,124 @@ export default function DashboardPage() {
   }
 
   const charProgress = xpProgress(profile.total_xp);
+  const sortedStats = STAT_ORDER.map(
+    (name) => stats.find((s) => s.stat_name === name)!
+  ).filter(Boolean);
+
+  // Find highest and lowest stats for the insight
+  const maxStat = sortedStats.reduce((a, b) => (a.level > b.level ? a : b));
+  const minStat = sortedStats.reduce((a, b) => (a.level < b.level ? a : b));
 
   return (
     <div className="min-h-screen p-4 pb-20">
       <div className="max-w-lg mx-auto">
         {/* Header */}
-        <div className="flex items-start justify-between mb-5">
+        <div className="flex items-start justify-between mb-4">
           <div className="font-mono">
-            <div className="text-xs text-oc-cyan/50 mb-1">
+            <div className="text-xs text-oc-cyan/50 mb-0.5">
               SYS.CORE // MAIN DIAGNOSTIC
             </div>
             <h1 className="text-lg font-bold text-oc-cyan tracking-wider">
               OVERCLOCK
             </h1>
+            {profile.active_title && (
+              <div className="text-[10px] text-oc-amber mt-0.5">
+                «{profile.active_title}»
+              </div>
+            )}
           </div>
           <LogoutButton />
         </div>
 
-        {/* Character level + streak */}
+        {/* Level + Streak row */}
         <div className="grid grid-cols-2 gap-3 mb-4">
+          {/* System Level */}
           <div className="border border-oc-border rounded-lg p-3 bg-oc-surface/50">
             <div className="text-[10px] font-mono text-neutral-500 uppercase tracking-wider mb-1">
               System Level
             </div>
-            <div className="text-2xl font-bold font-mono text-oc-cyan">
+            <div className="text-3xl font-bold font-mono text-oc-cyan leading-none">
               {profile.character_level}
             </div>
             <div className="mt-2 h-1.5 bg-neutral-800 rounded-full overflow-hidden">
               <div
-                className="h-full bg-oc-cyan rounded-full transition-all duration-500"
+                className="h-full bg-oc-cyan rounded-full transition-all duration-700"
                 style={{
                   width: `${Math.min(100, (charProgress.current / charProgress.required) * 100)}%`,
+                  boxShadow: "0 0 8px rgba(0, 240, 255, 0.4)",
                 }}
               />
             </div>
             <div className="text-[10px] font-mono text-neutral-600 mt-1">
-              {charProgress.current} / {charProgress.required} XP
+              {charProgress.current.toLocaleString()} / {charProgress.required.toLocaleString()} XP
             </div>
           </div>
 
+          {/* Streak */}
           <div className="border border-oc-border rounded-lg p-3 bg-oc-surface/50">
             <div className="text-[10px] font-mono text-neutral-500 uppercase tracking-wider mb-1">
               Uptime Streak
             </div>
-            <div className="text-2xl font-bold font-mono text-oc-green">
+            <div className="text-3xl font-bold font-mono text-oc-green leading-none">
               {profile.streak_days}
-              <span className="text-sm text-neutral-500 ml-1">days</span>
             </div>
-            <div className="text-[10px] font-mono text-neutral-600 mt-3">
-              Multiplier:{" "}
-              <span className="text-oc-amber">{profile.streak_multiplier}×</span>
+            <div className="text-[10px] font-mono text-neutral-600 mt-2">
+              Multiplier
+            </div>
+            <div className="text-sm font-mono text-oc-amber font-bold">
+              {profile.streak_multiplier}×
             </div>
           </div>
         </div>
 
-        {/* Stat readouts */}
+        {/* Today's output */}
+        <div className="mb-4">
+          <TodayStats logs={recentLogs} quests={quests} />
+        </div>
+
+        {/* Radar Chart */}
+        <div className="border border-oc-border rounded-lg p-3 bg-oc-surface/50 mb-4">
+          <div className="text-[10px] font-mono text-neutral-500 uppercase tracking-wider mb-1">
+            Subsystem Map
+          </div>
+          <RadarChart stats={stats} size={260} />
+          {/* Quick insight */}
+          {maxStat.level > minStat.level && (
+            <div className="text-[10px] font-mono text-neutral-500 text-center mt-1">
+              <span style={{ color: STAT_INFO[maxStat.stat_name].colour }}>
+                {maxStat.stat_name}
+              </span>
+              {" leads · "}
+              <span style={{ color: STAT_INFO[minStat.stat_name].colour }}>
+                {minStat.stat_name}
+              </span>
+              {" needs work"}
+            </div>
+          )}
+        </div>
+
+        {/* Stat bars */}
         <div className="border border-oc-border rounded-lg p-3 bg-oc-surface/50 mb-4">
           <div className="text-[10px] font-mono text-neutral-500 uppercase tracking-wider mb-3">
-            Subsystem Status
+            Subsystem Detail
           </div>
-          <div className="space-y-2.5">
-            {stats
-              .sort((a, b) => {
-                const order: StatName[] = ["STR", "END", "DEX", "INT", "WIS", "CHA"];
-                return order.indexOf(a.stat_name) - order.indexOf(b.stat_name);
-              })
-              .map((stat) => {
-                const info = STAT_INFO[stat.stat_name];
-                const progress = xpProgress(stat.total_xp);
-                const pct = Math.min(
-                  100,
-                  (stat.current_xp / (progress.required || 1)) * 100
-                );
-                return (
-                  <div key={stat.id}>
-                    <div className="flex items-center justify-between mb-0.5">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className="text-xs font-mono font-bold w-8"
-                          style={{ color: info.colour }}
-                        >
-                          {stat.stat_name}
-                        </span>
-                        <span className="text-[10px] font-mono text-neutral-500">
-                          {info.label}
-                        </span>
-                      </div>
-                      <div className="text-xs font-mono" style={{ color: info.colour }}>
-                        Lv.{stat.level}
-                      </div>
-                    </div>
-                    <div className="h-1.5 bg-neutral-800 rounded-full overflow-hidden">
-                      <div
-                        className="h-full rounded-full transition-all duration-500"
-                        style={{
-                          width: `${pct}%`,
-                          backgroundColor: info.colour,
-                          boxShadow: `0 0 6px ${info.colour}40`,
-                        }}
-                      />
-                    </div>
-                    <div className="text-[9px] font-mono text-neutral-600 mt-0.5">
-                      {stat.current_xp} / {progress.required} XP
-                    </div>
-                  </div>
-                );
-              })}
+          <div className="space-y-3">
+            {sortedStats.map((stat) => (
+              <XpBar
+                key={stat.id}
+                statName={stat.stat_name}
+                level={stat.level}
+                currentXp={stat.current_xp}
+                totalXp={stat.total_xp}
+              />
+            ))}
           </div>
         </div>
 
         {/* Recent activity */}
         <div className="border border-oc-border rounded-lg p-3 bg-oc-surface/50 mb-4">
           <div className="text-[10px] font-mono text-neutral-500 uppercase tracking-wider mb-2">
-            Recent Activity
+            Mission Log
           </div>
           {recentLogs.length === 0 ? (
             <div className="text-xs font-mono text-neutral-600 py-2">
@@ -176,23 +196,42 @@ export default function DashboardPage() {
               </Link>
             </div>
           ) : (
-            <div className="space-y-1.5">
-              {recentLogs.slice(0, 5).map((log) => (
-                <div
-                  key={log.id}
-                  className="flex items-center justify-between text-xs font-mono"
-                >
-                  <span className="text-neutral-400 truncate flex-1">
-                    {new Date(log.completed_at).toLocaleDateString("en-AU", {
-                      day: "numeric",
-                      month: "short",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </span>
-                  <span className="text-oc-amber ml-2">+{log.xp_earned} XP</span>
-                </div>
-              ))}
+            <div className="space-y-1">
+              {recentLogs.slice(0, 8).map((log) => {
+                const quest = quests.find((q) => q.id === log.quest_id);
+                const statInfo = quest ? STAT_INFO[quest.stat] : null;
+                return (
+                  <div
+                    key={log.id}
+                    className="flex items-center justify-between text-xs font-mono py-0.5"
+                  >
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      {statInfo && (
+                        <span
+                          className="text-[10px] font-bold w-7 shrink-0"
+                          style={{ color: statInfo.colour }}
+                        >
+                          {quest!.stat}
+                        </span>
+                      )}
+                      <span className="text-neutral-400 truncate">
+                        {quest?.name || "Unknown"}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0 ml-2">
+                      <span className="text-neutral-600 text-[10px]">
+                        {new Date(log.completed_at).toLocaleDateString("en-AU", {
+                          day: "numeric",
+                          month: "short",
+                        })}
+                      </span>
+                      <span className="text-oc-amber w-14 text-right">
+                        +{log.xp_earned}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
@@ -208,11 +247,18 @@ export default function DashboardPage() {
               Missions
             </div>
           </Link>
-          <div className="border border-oc-border rounded-lg p-3 bg-oc-surface/30 text-center opacity-40">
+          <div className="border border-oc-border rounded-lg p-3 bg-oc-surface/30 text-center opacity-40 cursor-not-allowed">
             <div className="text-lg mb-1">◇</div>
             <div className="text-[10px] font-mono text-neutral-500 uppercase tracking-wider">
-              Diagnostics
+              Run Diagnostic
             </div>
+          </div>
+        </div>
+
+        {/* Total XP footer */}
+        <div className="text-center mt-6 mb-2">
+          <div className="text-[10px] font-mono text-neutral-600">
+            TOTAL SYSTEM XP: {profile.total_xp.toLocaleString()}
           </div>
         </div>
       </div>
