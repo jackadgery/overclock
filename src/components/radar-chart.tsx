@@ -8,7 +8,6 @@ interface RadarChartProps {
 }
 
 const STAT_ORDER: StatName[] = ["STR", "END", "DEX", "INT", "WIS", "CHA"];
-const MAX_DISPLAY_LEVEL = 50; // Visual cap for the radar
 
 export function RadarChart({ stats, size = 280 }: RadarChartProps) {
   const cx = size / 2;
@@ -20,6 +19,9 @@ export function RadarChart({ stats, size = 280 }: RadarChartProps) {
   const ordered = STAT_ORDER.map(
     (name) => stats.find((s) => s.stat_name === name)!
   ).filter(Boolean);
+
+  // Scale to the highest stat so the max always touches the edge
+  const maxLevel = Math.max(1, ...ordered.map((s) => s.level));
 
   const numStats = ordered.length;
   const angleStep = (2 * Math.PI) / numStats;
@@ -35,7 +37,7 @@ export function RadarChart({ stats, size = 280 }: RadarChartProps) {
 
   // Build the data polygon
   const dataPoints = ordered.map((stat, i) => {
-    const value = Math.min(stat.level / MAX_DISPLAY_LEVEL, 1);
+    const value = Math.min(stat.level / maxLevel, 1);
     return getPoint(i, Math.max(value, 0.04)); // Min 4% so level 1 is visible
   });
 

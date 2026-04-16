@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { getProfile, getStats, getQuestLogs, getQuests, getTodayMoodLog, getMoodLogs } from "@/lib/db";
 import { evaluateStreak } from "@/lib/streak";
 import { xpProgress } from "@/lib/xp";
@@ -18,13 +19,13 @@ import { XpBar } from "@/components/xp-bar";
 import { TodayStats } from "@/components/today-stats";
 import { StreakBanner } from "@/components/streak-banner";
 import { MoodGrid } from "@/components/mood-grid";
-import { DiagnosticPanel, DiagnosticLoading, DiagnosticError } from "@/components/diagnostic-panel";
-import type { DiagnosticSuggestion } from "@/app/api/diagnose/route";
+import { DiagnosticLoading, DiagnosticError } from "@/components/diagnostic-panel";
 import Link from "next/link";
 
 const STAT_ORDER: StatName[] = ["STR", "END", "DEX", "INT", "WIS", "CHA"];
 
 export default function DashboardPage() {
+  const router = useRouter();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [stats, setStats] = useState<Stat[]>([]);
   const [recentLogs, setRecentLogs] = useState<QuestLog[]>([]);
@@ -32,10 +33,10 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [streakMessage, setStreakMessage] = useState<string | null>(null);
   const [showMoodGrid, setShowMoodGrid] = useState(false);
+  const [showDiagnosticMood, setShowDiagnosticMood] = useState(false);
   const [diagnosticState, setDiagnosticState] = useState<
-    "idle" | "loading" | "done" | "error"
+    "idle" | "loading" | "error"
   >("idle");
-  const [diagnosticSuggestions, setDiagnosticSuggestions] = useState<DiagnosticSuggestion[]>([]);
 
   useEffect(() => {
     async function load() {
@@ -45,7 +46,7 @@ export default function DashboardPage() {
           getStats(),
           getQuestLogs(50),
           getQuests(),
-          getTodayMoodLog(),
+          getTodayMoodLog().catch(() => null),
         ]);
 
         // Evaluate streak on dashboard load
@@ -68,6 +69,10 @@ export default function DashboardPage() {
         if (!todayMood) setShowMoodGrid(true);
       } catch (err) {
         console.error("Failed to load dashboard:", err);
+        if (err instanceof Error && err.message === "Not authenticated") {
+          window.location.replace("/login");
+          return;
+        }
       } finally {
         setLoading(false);
       }
@@ -106,7 +111,13 @@ export default function DashboardPage() {
   // Type assertion for streak_freezes since it was added in Phase 4
   const freezes = (profile as Profile & { streak_freezes?: number }).streak_freezes ?? 0;
 
-  async function handleRunDiagnostic() {
+  // Step 1: button press → show mood recalibration grid
+  function handleRunDiagnostic() {
+    setShowDiagnosticMood(true);
+  }
+
+  // Step 2: after mood logged → run AI and navigate to Missions
+  async function runDiagnosticAI() {
     setDiagnosticState("loading");
     try {
       const moodLogs = await getMoodLogs(5);
@@ -169,9 +180,8 @@ export default function DashboardPage() {
       });
 
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      setDiagnosticSuggestions(data.suggestions);
-      setDiagnosticState("done");
+      setDiagnosticState("idle");
+      router.push("/quests");
     } catch (err) {
       console.error("Diagnostic failed:", err);
       setDiagnosticState("error");
@@ -181,13 +191,15 @@ export default function DashboardPage() {
   return (
     <>
     {showMoodGrid && <MoodGrid onDone={() => setShowMoodGrid(false)} />}
-    {diagnosticState === "loading" && <DiagnosticLoading />}
-    {diagnosticState === "done" && (
-      <DiagnosticPanel
-        suggestions={diagnosticSuggestions}
-        onDone={() => setDiagnosticState("idle")}
+    {showDiagnosticMood && (
+      <MoodGrid
+        onDone={() => {
+          setShowDiagnosticMood(false);
+          runDiagnosticAI();
+        }}
       />
     )}
+    {diagnosticState === "loading" && <DiagnosticLoading />}
     {diagnosticState === "error" && (
       <DiagnosticError onDone={() => setDiagnosticState("idle")} />
     )}

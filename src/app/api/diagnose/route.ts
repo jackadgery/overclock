@@ -22,11 +22,12 @@ Respond with ONLY a JSON array — no markdown, no explanation, no wrapper objec
 - stat: one of STR, END, DEX, INT, WIS, CHA
 - difficulty_tier: integer 1–5
 - base_xp: integer within the tier range (T1: 10–25, T2: 25–75, T3: 75–150, T4: 150–300, T5: 300–500)
+- logging_mode: "quick" or "detailed" (use "detailed" for STR/END workout quests where tracking sets/reps/weight adds value; "quick" for everything else)
 - reasoning: string (one sentence explaining why this quest right now)
 
 Example format:
 [
-  {"name": "...", "stat": "STR", "difficulty_tier": 3, "base_xp": 100, "reasoning": "..."},
+  {"name": "...", "stat": "STR", "difficulty_tier": 3, "base_xp": 100, "logging_mode": "detailed", "reasoning": "..."},
   ...
 ]`;
 
@@ -35,6 +36,7 @@ export interface DiagnosticSuggestion {
   stat: string;
   difficulty_tier: number;
   base_xp: number;
+  logging_mode?: "quick" | "detailed";
   reasoning: string;
 }
 
@@ -71,6 +73,31 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
+
+  // Deactivate previous AI missions, then insert new ones
+  await supabase
+    .from("quests")
+    .update({ is_active: false })
+    .eq("profile_id", user.id)
+    .contains("tags", ["ai"]);
+
+  const questInserts = suggestions.map((s) => ({
+    profile_id: user.id,
+    name: s.name,
+    stat: s.stat,
+    difficulty_tier: String(s.difficulty_tier),
+    base_xp: s.base_xp,
+    quest_type: "repeatable",
+    logging_mode: s.logging_mode ?? "quick",
+    is_active: true,
+    deadline: null,
+    notes: s.reasoning,
+    tags: ["ai"],
+    chain_id: null,
+    chain_order: null,
+  }));
+
+  await supabase.from("quests").insert(questInserts);
 
   return Response.json({ suggestions });
 }
