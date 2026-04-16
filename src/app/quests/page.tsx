@@ -38,7 +38,6 @@ export default function QuestsPage() {
     setLastResult(null);
 
     try {
-      // Get recent logs for this quest to calculate diminishing returns
       const recentLogs = await getQuestLogsForQuest(quest.id, 14);
       const sameIntensityCount = recentLogs.length;
 
@@ -50,8 +49,6 @@ export default function QuestsPage() {
       });
 
       setLastResult({ questName: quest.name, xp: result.xpEarned });
-
-      // Reload data to reflect new XP
       await loadData();
     } catch (err) {
       console.error("Failed to complete quest:", err);
@@ -151,8 +148,8 @@ export default function QuestsPage() {
                     )}
                   </div>
 
-                  {/* Quick complete button */}
-                  {quest.logging_mode === "quick" && (
+                  {/* Action button */}
+                  {quest.logging_mode === "quick" ? (
                     <button
                       onClick={() => handleQuickComplete(quest)}
                       disabled={completing === quest.id}
@@ -164,11 +161,13 @@ export default function QuestsPage() {
                     >
                       {completing === quest.id ? "..." : "✓"}
                     </button>
-                  )}
-                  {quest.logging_mode === "detailed" && (
-                    <div className="shrink-0 w-12 h-12 rounded-lg border border-neutral-700 bg-neutral-800/50 flex items-center justify-center font-mono text-[10px] text-neutral-500 uppercase">
+                  ) : (
+                    <Link
+                      href={`/quests/log?quest=${quest.id}`}
+                      className="shrink-0 w-12 h-12 rounded-lg border border-oc-cyan/50 bg-oc-cyan/5 flex items-center justify-center font-mono text-[10px] text-oc-cyan uppercase hover:bg-oc-cyan/15 hover:border-oc-cyan active:scale-95 transition-all"
+                    >
                       Log
-                    </div>
+                    </Link>
                   )}
                 </div>
               </div>
