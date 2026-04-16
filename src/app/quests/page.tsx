@@ -66,7 +66,12 @@ export default function QuestsPage() {
   }
 
   const directives = quests.filter((q) => q.tags.includes("ai"));
-  const routines = quests.filter((q) => !q.tags.includes("ai"));
+  const ops = quests.filter(
+    (q) => !q.tags.includes("ai") && (q.quest_type === "one_off" || q.quest_type === "timed")
+  );
+  const routines = quests.filter(
+    (q) => !q.tags.includes("ai") && q.quest_type === "repeatable"
+  );
 
   return (
     <div className="min-h-screen p-4 pb-20">
@@ -81,12 +86,20 @@ export default function QuestsPage() {
               MISSIONS
             </h1>
           </div>
-          <Link
-            href="/quests/new"
-            className="text-[10px] font-mono text-oc-amber border border-oc-amber/40 bg-oc-amber/5 px-3 py-1.5 rounded hover:bg-oc-amber/10 transition-colors uppercase tracking-wider"
-          >
-            + Routine
-          </Link>
+          <div className="flex gap-2">
+            <Link
+              href="/quests/new?t=op"
+              className="text-[10px] font-mono text-oc-magenta border border-oc-magenta/40 bg-oc-magenta/5 px-2.5 py-1.5 rounded hover:bg-oc-magenta/10 transition-colors uppercase tracking-wider"
+            >
+              + Op
+            </Link>
+            <Link
+              href="/quests/new?t=routine"
+              className="text-[10px] font-mono text-oc-amber border border-oc-amber/40 bg-oc-amber/5 px-2.5 py-1.5 rounded hover:bg-oc-amber/10 transition-colors uppercase tracking-wider"
+            >
+              + Routine
+            </Link>
+          </div>
         </div>
 
         {/* XP flash */}
@@ -99,68 +112,91 @@ export default function QuestsPage() {
         )}
 
         {/* DIRECTIVES */}
-        <div className="mb-6">
-          <div className="text-[10px] font-mono text-neutral-600 uppercase tracking-widest mb-2">
-            Directives
-          </div>
+        <Section label="Directives">
           {directives.length === 0 ? (
-            <div className="border border-oc-border rounded-lg p-4 bg-oc-surface/20 text-center">
-              <div className="text-[10px] font-mono text-neutral-700 mb-1">
-                No directives loaded
-              </div>
-              <Link
-                href="/dashboard"
-                className="text-[10px] font-mono text-oc-cyan/50 hover:text-oc-cyan transition-colors uppercase tracking-wider"
-              >
-                Run Diagnostic from CORE →
-              </Link>
-            </div>
+            <EmptyState
+              message="No directives loaded"
+              action="Run Diagnostic from CORE →"
+              href="/dashboard"
+            />
           ) : (
-            <div className="space-y-2">
-              {directives.map((quest) => (
-                <QuestCard
-                  key={quest.id}
-                  quest={quest}
-                  completing={completing}
-                  onQuickComplete={handleQuickComplete}
-                  showReasoning
-                />
-              ))}
-            </div>
+            directives.map((quest) => (
+              <QuestCard
+                key={quest.id}
+                quest={quest}
+                completing={completing}
+                onQuickComplete={handleQuickComplete}
+                showNotes
+              />
+            ))
           )}
-        </div>
+        </Section>
+
+        {/* OPS */}
+        <Section label="Ops">
+          {ops.length === 0 ? (
+            <EmptyState
+              message="No ops queued"
+              action="+ Op →"
+              href="/quests/new?t=op"
+            />
+          ) : (
+            ops.map((quest) => (
+              <QuestCard
+                key={quest.id}
+                quest={quest}
+                completing={completing}
+                onQuickComplete={handleQuickComplete}
+              />
+            ))
+          )}
+        </Section>
 
         {/* ROUTINES */}
-        <div>
-          <div className="text-[10px] font-mono text-neutral-600 uppercase tracking-widest mb-2">
-            Routines
-          </div>
+        <Section label="Routines">
           {routines.length === 0 ? (
-            <div className="border border-oc-border rounded-lg p-4 bg-oc-surface/20 text-center">
-              <div className="text-[10px] font-mono text-neutral-700 mb-1">
-                No routines defined
-              </div>
-              <Link
-                href="/quests/new"
-                className="text-[10px] font-mono text-oc-amber/50 hover:text-oc-amber transition-colors uppercase tracking-wider"
-              >
-                Add a routine →
-              </Link>
-            </div>
+            <EmptyState
+              message="No routines defined"
+              action="+ Routine →"
+              href="/quests/new?t=routine"
+            />
           ) : (
-            <div className="space-y-2">
-              {routines.map((quest) => (
-                <QuestCard
-                  key={quest.id}
-                  quest={quest}
-                  completing={completing}
-                  onQuickComplete={handleQuickComplete}
-                />
-              ))}
-            </div>
+            routines.map((quest) => (
+              <QuestCard
+                key={quest.id}
+                quest={quest}
+                completing={completing}
+                onQuickComplete={handleQuickComplete}
+              />
+            ))
           )}
-        </div>
+        </Section>
       </div>
+    </div>
+  );
+}
+
+function Section({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="mb-6">
+      <div className="text-[10px] font-mono text-neutral-600 uppercase tracking-widest mb-2">
+        {label}
+      </div>
+      <div className="space-y-2">{children}</div>
+    </div>
+  );
+}
+
+function EmptyState({ message, action, href }: { message: string; action: string; href: string }) {
+  return (
+    <div className="border border-oc-border rounded-lg p-4 bg-oc-surface/20 text-center">
+      <div className="text-[10px] font-mono text-neutral-700 mb-1">{message}</div>
+      <Link
+        href={href}
+        className="text-[10px] font-mono text-neutral-600 hover:text-neutral-400 transition-colors uppercase tracking-wider"
+      >
+        {action}
+      </Link>
     </div>
   );
 }
@@ -169,10 +205,10 @@ interface QuestCardProps {
   quest: Quest;
   completing: string | null;
   onQuickComplete: (quest: Quest) => void;
-  showReasoning?: boolean;
+  showNotes?: boolean;
 }
 
-function QuestCard({ quest, completing, onQuickComplete, showReasoning }: QuestCardProps) {
+function QuestCard({ quest, completing, onQuickComplete, showNotes }: QuestCardProps) {
   return (
     <div className="border border-oc-border rounded-lg p-3 bg-oc-surface/50 hover:border-neutral-600 transition-colors">
       <div className="flex items-start justify-between gap-3">
@@ -186,14 +222,14 @@ function QuestCard({ quest, completing, onQuickComplete, showReasoning }: QuestC
           <div className="font-mono text-sm text-neutral-200 truncate">
             {quest.name}
           </div>
-          {showReasoning && quest.notes && (
+          {showNotes && quest.notes && (
             <div className="text-[10px] font-mono text-neutral-600 mt-1 leading-relaxed line-clamp-2">
               {quest.notes}
             </div>
           )}
-          {!showReasoning && quest.tags.length > 0 && (
+          {!showNotes && quest.tags.filter((t) => t !== "ai").length > 0 && (
             <div className="flex gap-1 mt-1.5 flex-wrap">
-              {quest.tags.map((tag) => (
+              {quest.tags.filter((t) => t !== "ai").map((tag) => (
                 <span
                   key={tag}
                   className="text-[9px] font-mono text-neutral-500 bg-neutral-800 px-1.5 py-0.5 rounded"
@@ -203,14 +239,16 @@ function QuestCard({ quest, completing, onQuickComplete, showReasoning }: QuestC
               ))}
             </div>
           )}
+          {quest.deadline && (
+            <div className="text-[10px] font-mono text-oc-magenta/70 mt-1">
+              ⏱ {new Date(quest.deadline).toLocaleDateString("en-AU", { day: "numeric", month: "short" })}
+            </div>
+          )}
           <div className="mt-1">
-            <span className="text-[10px] font-mono text-oc-amber">
-              {quest.base_xp} XP
-            </span>
+            <span className="text-[10px] font-mono text-oc-amber">{quest.base_xp} XP</span>
           </div>
         </div>
 
-        {/* Action */}
         {quest.logging_mode === "quick" ? (
           <button
             onClick={() => onQuickComplete(quest)}

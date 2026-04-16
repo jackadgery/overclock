@@ -1,6 +1,8 @@
 import { createClient } from "@/lib/supabase/client";
 import { calculateXp, xpRequiredForLevel } from "@/lib/xp";
 import { incrementStreak, checkAndAwardFreeze } from "@/lib/streak";
+import { getUnlockedNodeNames, getUnlockedSpecNames, checkAndUnlockSpecialisations } from "@/lib/db";
+import { computeNodeMultiplier, computeDrFloor, computeSpecMultiplier } from "@/lib/skill-tree";
 import type { Quest, Profile, Stat } from "@/lib/types";
 
 interface CompleteQuestInput {
@@ -25,6 +27,7 @@ interface CompleteQuestResult {
   newStreakDays: number;
   newMultiplier: number;
   freezeAwarded: boolean;
+  newlyUnlockedSpecs: string[];
 }
 
 export async function completeQuest(
@@ -43,6 +46,15 @@ export async function completeQuest(
   // Check for freeze award
   const freezeAwarded = await checkAndAwardFreeze(profile.id, newStreakDays);
 
+  // Fetch skill tree bonuses
+  const [unlockedNodes, unlockedSpecs] = await Promise.all([
+    getUnlockedNodeNames(),
+    getUnlockedSpecNames(),
+  ]);
+  const nodeMultiplier = computeNodeMultiplier(unlockedNodes, quest.stat, quest.logging_mode);
+  const drFloor = computeDrFloor(unlockedNodes, unlockedSpecs, quest.stat);
+  const specMultiplier = computeSpecMultiplier(unlockedSpecs, quest.stat);
+
   // Calculate XP using the updated streak
   const xpResult = calculateXp({
     baseXp: quest.base_xp,
@@ -50,6 +62,9 @@ export async function completeQuest(
     sameIntensityCount,
     actualTonnage: input.actualTonnage,
     baselineTonnage: input.baselineTonnage ?? stat.baseline_tonnage ?? undefined,
+    nodeMultiplier,
+    drFloor,
+    specMultiplier,
   });
 
   // Check for stat level-up
@@ -126,6 +141,14 @@ export async function completeQuest(
     .eq("id", profile.id);
   if (profileError) throw profileError;
 
+  // Check for newly unlocked cross-stat specialisations
+  const updatedStats = stats.map((s) =>
+    s.stat_name === quest.stat ? { ...s, level: newStatLevel } : s
+  );
+  const newlyUnlockedSpecs = statLevelUp
+    ? await checkAndUnlockSpecialisations(updatedStats)
+    : [];
+
   return {
     xpEarned: xpResult.finalXp,
     statLevelUp,
@@ -136,5 +159,6 @@ export async function completeQuest(
     newStreakDays,
     newMultiplier,
     freezeAwarded,
+    newlyUnlockedSpecs,
   };
 }

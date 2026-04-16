@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createQuest } from "@/lib/db";
 import {
   STAT_INFO,
@@ -15,13 +15,25 @@ import {
 const STATS = Object.keys(STAT_INFO) as StatName[];
 const TIERS = Object.keys(TIER_XP_RANGES) as DifficultyTier[];
 const QUEST_TYPES: { value: QuestType; label: string }[] = [
-  { value: "repeatable", label: "Repeatable" },
-  { value: "one_off", label: "One-off" },
-  { value: "timed", label: "Timed" },
+  { value: "repeatable", label: "Routine" },
+  { value: "one_off", label: "Op" },
+  { value: "timed", label: "Timed Op" },
 ];
 
 export default function NewQuestPage() {
+  return (
+    <Suspense>
+      <NewQuestForm />
+    </Suspense>
+  );
+}
+
+function NewQuestForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const preselect = searchParams.get("t");
+  const initialType: QuestType = preselect === "op" ? "one_off" : "repeatable";
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -29,7 +41,7 @@ export default function NewQuestPage() {
   const [stat, setStat] = useState<StatName>("STR");
   const [tier, setTier] = useState<DifficultyTier>("3");
   const [baseXp, setBaseXp] = useState(100);
-  const [questType, setQuestType] = useState<QuestType>("repeatable");
+  const [questType, setQuestType] = useState<QuestType>(initialType);
   const [loggingMode, setLoggingMode] = useState<LoggingMode>("quick");
   const [deadline, setDeadline] = useState("");
   const [notes, setNotes] = useState("");
@@ -86,10 +98,10 @@ export default function NewQuestPage() {
         {/* Header */}
         <div className="mb-6 font-mono">
           <div className="text-xs text-oc-cyan/50 mb-1">
-            SYS.MISSIONS // NEW DIRECTIVE
+            SYS.MISSIONS // {questType === "repeatable" ? "NEW ROUTINE" : "NEW OP"}
           </div>
           <h1 className="text-lg font-bold text-oc-cyan tracking-wider">
-            CREATE MISSION
+            {questType === "repeatable" ? "ADD ROUTINE" : "QUEUE OP"}
           </h1>
         </div>
 
@@ -310,7 +322,7 @@ export default function NewQuestPage() {
               disabled={loading || !name}
               className="flex-1 bg-oc-cyan/10 border border-oc-cyan/50 text-oc-cyan font-mono text-sm py-2.5 rounded hover:bg-oc-cyan/20 hover:border-oc-cyan transition-colors disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-wider"
             >
-              {loading ? "Deploying..." : "Deploy Mission"}
+              {loading ? "Deploying..." : questType === "repeatable" ? "Add Routine" : "Queue Op"}
             </button>
           </div>
         </form>

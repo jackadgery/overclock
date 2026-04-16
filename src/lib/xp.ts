@@ -75,8 +75,8 @@ export function calculateDeathTax(streakDays: number): number {
  * sameIntensityCount = number of completions at same tier/tonnage
  * in the last 14 completions of this quest.
  */
-export function calculateDecayFactor(sameIntensityCount: number): number {
-  return Math.max(0.25, 1 - 0.05 * sameIntensityCount);
+export function calculateDecayFactor(sameIntensityCount: number, floor: number = 0.25): number {
+  return Math.max(floor, 1 - 0.05 * sameIntensityCount);
 }
 
 // ============================================
@@ -120,6 +120,10 @@ export interface XpCalculationInput {
   baselineTonnage?: number;
   /** Spec bonus (1.15 if quest aligns with active spec) */
   specMultiplier?: number;
+  /** Combined XP multiplier from unlocked skill tree nodes */
+  nodeMultiplier?: number;
+  /** DR floor from unlocked skill tree nodes (default 0.25) */
+  drFloor?: number;
 }
 
 export interface XpCalculationResult {
@@ -129,6 +133,7 @@ export interface XpCalculationResult {
   streakMultiplier: number;
   decayFactor: number;
   specMultiplier: number;
+  nodeMultiplier: number;
 }
 
 /** Calculate final XP earned for a quest completion */
@@ -139,11 +144,13 @@ export function calculateXp(input: XpCalculationInput): XpCalculationResult {
       : 1.0;
 
   const streakMultiplier = getStreakMultiplier(input.streakDays);
-  const decayFactor = calculateDecayFactor(input.sameIntensityCount);
+  const drFloor = input.drFloor ?? 0.25;
+  const decayFactor = calculateDecayFactor(input.sameIntensityCount, drFloor);
   const specMultiplier = input.specMultiplier ?? 1.0;
+  const nodeMultiplier = input.nodeMultiplier ?? 1.0;
 
   const finalXp = Math.floor(
-    input.baseXp * volumeMultiplier * streakMultiplier * decayFactor * specMultiplier
+    input.baseXp * volumeMultiplier * streakMultiplier * decayFactor * specMultiplier * nodeMultiplier
   );
 
   return {
@@ -153,6 +160,7 @@ export function calculateXp(input: XpCalculationInput): XpCalculationResult {
     streakMultiplier,
     decayFactor,
     specMultiplier,
+    nodeMultiplier,
   };
 }
 

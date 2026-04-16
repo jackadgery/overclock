@@ -12,6 +12,7 @@ import type {
   Achievement,
   StatName,
 } from "@/lib/types";
+import { CROSS_STAT_SPECS } from "@/lib/skill-tree";
 
 // ============================================
 // Helper: get current user ID or throw
@@ -327,4 +328,119 @@ export async function unlockAchievement(
     .single();
   if (error) throw error;
   return data;
+}
+
+// ============================================
+// SKILL NODES
+// ============================================
+
+export async function getUnlockedNodeNames(): Promise<Set<string>> {
+  const supabase = createClient();
+  const userId = await getUserId();
+  const { data, error } = await supabase
+    .from("skill_nodes")
+    .select("node_name")
+    .eq("profile_id", userId);
+  if (error) throw error;
+  return new Set((data as { node_name: string }[]).map((r) => r.node_name));
+}
+
+export async function getUnlockedNodeNamesForStat(stat: StatName): Promise<Set<string>> {
+  const supabase = createClient();
+  const userId = await getUserId();
+  const { data, error } = await supabase
+    .from("skill_nodes")
+    .select("node_name")
+    .eq("profile_id", userId)
+    .eq("stat_name", stat);
+  if (error) throw error;
+  return new Set((data as { node_name: string }[]).map((r) => r.node_name));
+}
+
+export async function spendSkillPoint(
+  stat: StatName,
+  branchName: string,
+  nodeName: string,
+  cost: number
+): Promise<void> {
+  const supabase = createClient();
+  const userId = await getUserId();
+
+  const { data: statData, error: statFetchError } = await supabase
+    .from("stats")
+    .select("skill_points_available")
+    .eq("profile_id", userId)
+    .eq("stat_name", stat)
+    .single();
+  if (statFetchError) throw statFetchError;
+  if ((statData as { skill_points_available: number }).skill_points_available < cost) {
+    throw new Error("Insufficient skill points");
+  }
+
+  const { error: insertError } = await supabase
+    .from("skill_nodes")
+    .insert({ profile_id: userId, stat_name: stat, branch_name: branchName, node_name: nodeName });
+  if (insertError) throw insertError;
+
+  const { error: updateError } = await supabase
+    .from("stats")
+    .update({
+      skill_points_available:
+        (statData as { skill_points_available: number }).skill_points_available - cost,
+    })
+    .eq("profile_id", userId)
+    .eq("stat_name", stat);
+  if (updateError) throw updateError;
+}
+
+// ============================================
+// SPECIALISATIONS
+// ============================================
+
+export async function getUnlockedSpecNames(): Promise<Set<string>> {
+  const supabase = createClient();
+  const userId = await getUserId();
+  const { data, error } = await supabase
+    .from("specialisations")
+    .select("spec_name")
+    .eq("profile_id", userId);
+  if (error) throw error;
+  return new Set((data as { spec_name: string }[]).map((r) => r.spec_name));
+}
+
+export async function checkAndUnlockSpecialisations(
+  stats: Stat[]
+): Promise<string[]> {
+  const supabase = createClient();
+  const userId = await getUserId();
+
+  const statLevels: Partial<Record<StatName, number>> = {};
+  for (const s of stats) {
+    statLevels[s.stat_name as StatName] = s.level;
+  }
+
+  const { data: existing } = await supabase
+    .from("specialisations")
+    .select("spec_name")
+    .eq("profile_id", userId);
+  const alreadyUnlocked = new Set(
+    ((existing ?? []) as { spec_name: string }[]).map((r) => r.spec_name)
+  );
+
+  const newlyUnlocked: string[] = [];
+  for (const spec of CROSS_STAT_SPECS) {
+    if (alreadyUnlocked.has(spec.spec_name)) continue;
+    const met = Object.entries(spec.requirements).every(
+      ([statName, required]) => (statLevels[statName as StatName] ?? 0) >= (required as number)
+    );
+    if (met) newlyUnlocked.push(spec.spec_name);
+  }
+
+  if (newlyUnlocked.length > 0) {
+    const inserts = newlyUnlocked.map((spec_name) => ({ profile_id: userId, spec_name }));
+    const { error } = await supabase.from("specialisations").insert(inserts);
+    if (error) throw error;
+  }
+
+  return newlyUnlocked;
 }
