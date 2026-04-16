@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { getProfile, getStats, getQuestLogs, getQuests } from "@/lib/db";
+import { getProfile, getStats, getQuestLogs, getQuests, getTodayMoodLog, getMoodLogs } from "@/lib/db";
 import { evaluateStreak } from "@/lib/streak";
 import { xpProgress } from "@/lib/xp";
 import {
@@ -17,6 +17,9 @@ import { RadarChart } from "@/components/radar-chart";
 import { XpBar } from "@/components/xp-bar";
 import { TodayStats } from "@/components/today-stats";
 import { StreakBanner } from "@/components/streak-banner";
+import { MoodGrid } from "@/components/mood-grid";
+import { DiagnosticPanel, DiagnosticLoading, DiagnosticError } from "@/components/diagnostic-panel";
+import type { DiagnosticSuggestion } from "@/app/api/diagnose/route";
 import Link from "next/link";
 
 const STAT_ORDER: StatName[] = ["STR", "END", "DEX", "INT", "WIS", "CHA"];
@@ -28,15 +31,21 @@ export default function DashboardPage() {
   const [quests, setQuests] = useState<Quest[]>([]);
   const [loading, setLoading] = useState(true);
   const [streakMessage, setStreakMessage] = useState<string | null>(null);
+  const [showMoodGrid, setShowMoodGrid] = useState(false);
+  const [diagnosticState, setDiagnosticState] = useState<
+    "idle" | "loading" | "done" | "error"
+  >("idle");
+  const [diagnosticSuggestions, setDiagnosticSuggestions] = useState<DiagnosticSuggestion[]>([]);
 
   useEffect(() => {
     async function load() {
       try {
-        const [p, s, logs, q] = await Promise.all([
+        const [p, s, logs, q, todayMood] = await Promise.all([
           getProfile(),
           getStats(),
           getQuestLogs(50),
           getQuests(),
+          getTodayMoodLog(),
         ]);
 
         // Evaluate streak on dashboard load
@@ -56,6 +65,7 @@ export default function DashboardPage() {
         setStats(s);
         setRecentLogs(logs);
         setQuests(q);
+        if (!todayMood) setShowMoodGrid(true);
       } catch (err) {
         console.error("Failed to load dashboard:", err);
       } finally {
@@ -96,7 +106,91 @@ export default function DashboardPage() {
   // Type assertion for streak_freezes since it was added in Phase 4
   const freezes = (profile as Profile & { streak_freezes?: number }).streak_freezes ?? 0;
 
+  async function handleRunDiagnostic() {
+    setDiagnosticState("loading");
+    try {
+      const moodLogs = await getMoodLogs(5);
+
+      // Build diminishing returns flags: quests completed 5+ times in recent logs
+      const completionCounts: Record<string, number> = {};
+      for (const log of recentLogs) {
+        completionCounts[log.quest_id] = (completionCounts[log.quest_id] ?? 0) + 1;
+      }
+      const diminishingReturns = Object.entries(completionCounts)
+        .filter(([, count]) => count >= 5)
+        .map(([questId, count]) => ({
+          quest_name: quests.find((q) => q.id === questId)?.name ?? questId,
+          completions_last_14: count,
+        }));
+
+      const now = new Date();
+      const payload = {
+        stats: sortedStats.map((s) => ({
+          stat_name: s.stat_name,
+          level: s.level,
+          current_xp: s.current_xp,
+          total_xp: s.total_xp,
+        })),
+        quests: quests.map((q) => ({
+          name: q.name,
+          stat: q.stat,
+          difficulty_tier: q.difficulty_tier,
+          base_xp: q.base_xp,
+          logging_mode: q.logging_mode,
+          tags: q.tags,
+        })),
+        recentCompletions: recentLogs.slice(0, 20).map((log) => ({
+          quest_name: quests.find((q) => q.id === log.quest_id)?.name ?? "Unknown",
+          stat: quests.find((q) => q.id === log.quest_id)?.stat ?? "STR",
+          completed_at: log.completed_at,
+          xp_earned: log.xp_earned,
+        })),
+        streak: {
+          days: profile!.streak_days,
+          multiplier: profile!.streak_multiplier,
+        },
+        mood: moodLogs.map((m) => ({
+          energy: m.energy,
+          motivation: m.motivation,
+          was_skipped: m.was_skipped,
+          logged_at: m.logged_at,
+        })),
+        diminishingReturns,
+        timeContext: {
+          hour: now.getHours(),
+          dayOfWeek: now.toLocaleDateString("en-AU", { weekday: "long" }),
+        },
+      };
+
+      const res = await fetch("/api/diagnose", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setDiagnosticSuggestions(data.suggestions);
+      setDiagnosticState("done");
+    } catch (err) {
+      console.error("Diagnostic failed:", err);
+      setDiagnosticState("error");
+    }
+  }
+
   return (
+    <>
+    {showMoodGrid && <MoodGrid onDone={() => setShowMoodGrid(false)} />}
+    {diagnosticState === "loading" && <DiagnosticLoading />}
+    {diagnosticState === "done" && (
+      <DiagnosticPanel
+        suggestions={diagnosticSuggestions}
+        onDone={() => setDiagnosticState("idle")}
+      />
+    )}
+    {diagnosticState === "error" && (
+      <DiagnosticError onDone={() => setDiagnosticState("idle")} />
+    )}
     <div className="min-h-screen p-4 pb-20">
       <div className="max-w-lg mx-auto">
         {/* Header */}
@@ -280,12 +374,16 @@ export default function DashboardPage() {
               Missions
             </div>
           </Link>
-          <div className="border border-oc-border rounded-lg p-3 bg-oc-surface/30 text-center opacity-40 cursor-not-allowed">
+          <button
+            onClick={handleRunDiagnostic}
+            disabled={diagnosticState === "loading"}
+            className="border border-oc-border rounded-lg p-3 bg-oc-surface/50 hover:border-oc-cyan/30 transition-colors text-center disabled:opacity-40 disabled:cursor-not-allowed w-full"
+          >
             <div className="text-lg mb-1">◇</div>
-            <div className="text-[10px] font-mono text-neutral-500 uppercase tracking-wider">
+            <div className="text-[10px] font-mono text-neutral-400 uppercase tracking-wider">
               Run Diagnostic
             </div>
-          </div>
+          </button>
         </div>
 
         {/* Total XP footer */}
@@ -296,5 +394,6 @@ export default function DashboardPage() {
         </div>
       </div>
     </div>
+    </>
   );
 }

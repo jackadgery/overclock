@@ -218,6 +218,23 @@ export async function createQuestLog(log: QuestLogInsert): Promise<QuestLog> {
 // MOOD LOGS
 // ============================================
 
+export async function getTodayMoodLog(): Promise<MoodLog | null> {
+  const supabase = createClient();
+  const userId = await getUserId();
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const { data, error } = await supabase
+    .from("mood_logs")
+    .select("*")
+    .eq("profile_id", userId)
+    .gte("logged_at", todayStart.toISOString())
+    .order("logged_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
 export async function getMoodLogs(limit = 5): Promise<MoodLog[]> {
   const supabase = createClient();
   const userId = await getUserId();
