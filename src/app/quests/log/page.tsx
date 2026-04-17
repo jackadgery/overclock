@@ -5,8 +5,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { getQuest, getProfile, getStats, getQuestLogsForQuest } from "@/lib/db";
 import { completeQuest } from "@/lib/quest-actions";
 import { calculateTonnage } from "@/lib/xp";
+import { AchievementToast } from "@/components/achievement-toast";
 import { StatBadge } from "@/components/stat-badge";
 import { TIER_XP_RANGES, type Quest, type Profile, type Stat } from "@/lib/types";
+import type { AchievementDef } from "@/lib/achievements";
 
 interface ExerciseEntry {
   name: string;
@@ -25,6 +27,7 @@ export default function DetailedLogPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<{ xp: number } | null>(null);
+  const [toastAchievements, setToastAchievements] = useState<AchievementDef[]>([]);
 
   const [exercises, setExercises] = useState<ExerciseEntry[]>([
     { name: "", sets: [{ reps: "", weight: "" }] },
@@ -176,6 +179,9 @@ export default function DetailedLogPage() {
       });
 
       setSuccess({ xp: result.xpEarned });
+      if (result.newlyUnlockedAchievements.length > 0) {
+        setToastAchievements(result.newlyUnlockedAchievements);
+      }
 
       // If no baseline was set, set it from this session
       if (!baselineTonnage && totalTonnage > 0 && stat) {
@@ -224,6 +230,13 @@ export default function DetailedLogPage() {
   const totalTonnage = getTotalTonnage();
 
   return (
+    <>
+      {toastAchievements.length > 0 && (
+        <AchievementToast
+          achievements={toastAchievements}
+          onDismiss={() => setToastAchievements([])}
+        />
+      )}
     <div className="min-h-screen p-4 pb-20">
       <div className="max-w-lg mx-auto">
         {/* Header */}
@@ -418,5 +431,6 @@ export default function DetailedLogPage() {
         </div>
       </div>
     </div>
+    </>
   );
 }

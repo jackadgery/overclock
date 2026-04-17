@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { getProfile, getStats, getQuestLogs, getQuests, getTodayMoodLog, getMoodLogs } from "@/lib/db";
+import { getProfile, getStats, getQuestLogs, getQuests, getTodayMoodLog, getMoodLogs, getUnlockedNodeNames, getStreakHistory, getActiveSpec } from "@/lib/db";
 import { evaluateStreak } from "@/lib/streak";
 import { xpProgress } from "@/lib/xp";
 import {
@@ -20,7 +20,9 @@ import { TodayStats } from "@/components/today-stats";
 import { StreakBanner } from "@/components/streak-banner";
 import { MoodGrid } from "@/components/mood-grid";
 import { DiagnosticLoading, DiagnosticError } from "@/components/diagnostic-panel";
+import { AchievementToast } from "@/components/achievement-toast";
 import Link from "next/link";
+import type { AchievementDef } from "@/lib/achievements";
 
 const STAT_ORDER: StatName[] = ["STR", "END", "DEX", "INT", "WIS", "CHA"];
 
@@ -37,6 +39,7 @@ export default function DashboardPage() {
   const [diagnosticState, setDiagnosticState] = useState<
     "idle" | "loading" | "error"
   >("idle");
+  const [toastAchievements, setToastAchievements] = useState<AchievementDef[]>([]);
 
   useEffect(() => {
     async function load() {
@@ -53,6 +56,9 @@ export default function DashboardPage() {
         const evalResult = await evaluateStreak(p);
         if (evalResult.message) {
           setStreakMessage(evalResult.message);
+        }
+        if (evalResult.newlyUnlockedAchievements?.length > 0) {
+          setToastAchievements(evalResult.newlyUnlockedAchievements);
         }
 
         // Reload profile after streak evaluation (may have changed)
@@ -120,7 +126,12 @@ export default function DashboardPage() {
   async function runDiagnosticAI() {
     setDiagnosticState("loading");
     try {
-      const moodLogs = await getMoodLogs(5);
+      const [moodLogs, unlockedNodes, streakHistory, activeSpec] = await Promise.all([
+        getMoodLogs(5),
+        getUnlockedNodeNames(),
+        getStreakHistory(3),
+        getActiveSpec(),
+      ]);
 
       // Build diminishing returns flags: quests completed 5+ times in recent logs
       const completionCounts: Record<string, number> = {};
@@ -167,6 +178,23 @@ export default function DashboardPage() {
           logged_at: m.logged_at,
         })),
         diminishingReturns,
+        unlockedNodes: Array.from(unlockedNodes),
+        streakHistory: streakHistory.map((h) => ({
+          max_days: h.max_days,
+          death_tax_applied: h.death_tax_applied,
+          streak_end: h.streak_end,
+        })),
+        activeSpec: activeSpec
+          ? {
+              spec_name: activeSpec.spec_name,
+              focus_areas: activeSpec.focus_areas as string[],
+              primary_stats: activeSpec.primary_stats as string[],
+              days_active: Math.floor(
+                (Date.now() - new Date(activeSpec.activated_at).getTime()) / (1000 * 60 * 60 * 24)
+              ),
+              respec_token_available: activeSpec.respec_token_available,
+            }
+          : null,
         timeContext: {
           hour: now.getHours(),
           dayOfWeek: now.toLocaleDateString("en-AU", { weekday: "long" }),
@@ -190,6 +218,12 @@ export default function DashboardPage() {
 
   return (
     <>
+    {toastAchievements.length > 0 && (
+      <AchievementToast
+        achievements={toastAchievements}
+        onDismiss={() => setToastAchievements([])}
+      />
+    )}
     {showMoodGrid && <MoodGrid onDone={() => setShowMoodGrid(false)} />}
     {showDiagnosticMood && (
       <MoodGrid

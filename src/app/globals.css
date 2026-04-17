@@ -38,6 +38,21 @@ body::before {
   outline-offset: 2px;
 }
 
+/* Achievement glitch-in animation */
+@keyframes achievement-glitch {
+  0%   { clip-path: inset(0 0 100% 0); opacity: 0; }
+  15%  { clip-path: inset(0 0 60% 0);  opacity: 1; }
+  25%  { clip-path: inset(40% 0 0 0);  opacity: 0.8; }
+  35%  { clip-path: inset(0 0 0 0);    opacity: 1; transform: translateX(-2px); }
+  45%  { transform: translateX(2px); }
+  55%  { transform: translateX(-1px); }
+  100% { clip-path: inset(0 0 0 0);    opacity: 1; transform: translateX(0); }
+}
+
+.achievement-glitch {
+  animation: achievement-glitch 0.45s ease-out forwards;
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 6px;

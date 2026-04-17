@@ -3,6 +3,8 @@ import {
   getStreakMultiplier,
   calculateDeathTax,
 } from "@/lib/xp";
+import { checkAndAwardStreakAchievements, checkAndAwardBreakAchievements } from "@/lib/achievement-engine";
+import type { AchievementDef } from "@/lib/achievements";
 import type { Profile } from "@/lib/types";
 
 // ============================================
@@ -73,6 +75,7 @@ export interface StreakEvalResult {
   freezeUsed: boolean;
   streakBroken: boolean;
   message: string | null;
+  newlyUnlockedAchievements: AchievementDef[];
 }
 
 export async function evaluateStreak(
@@ -92,6 +95,7 @@ export async function evaluateStreak(
       freezeUsed: false,
       streakBroken: false,
       message: null,
+      newlyUnlockedAchievements: [],
     };
   }
 
@@ -104,6 +108,7 @@ export async function evaluateStreak(
       freezeUsed: false,
       streakBroken: false,
       message: null,
+      newlyUnlockedAchievements: [],
     };
   }
 
@@ -116,6 +121,7 @@ export async function evaluateStreak(
       freezeUsed: false,
       streakBroken: false,
       message: null,
+      newlyUnlockedAchievements: [],
     };
   }
 
@@ -136,6 +142,7 @@ export async function evaluateStreak(
       freezeUsed: false,
       streakBroken: false,
       message: null,
+      newlyUnlockedAchievements: [],
     };
   }
 
@@ -150,12 +157,11 @@ export async function evaluateStreak(
 
   // If missed only 1 day and have a freeze, use it
   if (daysMissed === 1 && freezesAvailable > 0) {
-    // Use a freeze
     await supabase
       .from("profiles")
       .update({
         streak_freezes: freezesAvailable - 1,
-        last_active_date: yesterday, // Pretend yesterday was active
+        last_active_date: yesterday,
       })
       .eq("id", profile.id);
 
@@ -166,6 +172,7 @@ export async function evaluateStreak(
       freezeUsed: true,
       streakBroken: false,
       message: `STREAK FREEZE DEPLOYED. ${freezesAvailable - 1} remaining.`,
+      newlyUnlockedAchievements: [],
     };
   }
 
@@ -186,11 +193,13 @@ export async function evaluateStreak(
       freezeUsed: true,
       streakBroken: false,
       message: `2 STREAK FREEZES DEPLOYED. ${freezesAvailable - 2} remaining.`,
+      newlyUnlockedAchievements: [],
     };
   }
 
   // Streak is broken — apply death tax
   const deathTax = calculateDeathTax(profile.streak_days);
+  const brokenDays = profile.streak_days;
 
   // Log the broken streak
   await supabase.from("streak_history").insert({
@@ -201,11 +210,8 @@ export async function evaluateStreak(
     death_tax_applied: deathTax,
   });
 
-  // Apply death tax to profile XP (can't drop below 0 in current level)
-  // We subtract from total_xp but floor at the current level's cumulative threshold
   const newTotalXp = Math.max(0, profile.total_xp - deathTax);
 
-  // Reset streak, apply tax
   await supabase
     .from("profiles")
     .update({
@@ -215,13 +221,17 @@ export async function evaluateStreak(
     })
     .eq("id", profile.id);
 
+  // Check break achievements (history already includes this entry)
+  const breakAchievements = await checkAndAwardBreakAchievements(brokenDays);
+
   return {
     streakDays: 0,
     streakMultiplier: 1.0,
     deathTaxApplied: deathTax,
     freezeUsed: false,
     streakBroken: true,
-    message: `SYSTEM DAMAGE: ${profile.streak_days}-day streak broken. Death tax: -${deathTax.toLocaleString()} XP.`,
+    message: `SYSTEM DAMAGE: ${brokenDays}-day streak broken. Death tax: -${deathTax.toLocaleString()} XP.`,
+    newlyUnlockedAchievements: breakAchievements,
   };
 }
 
@@ -231,6 +241,7 @@ export async function evaluateStreak(
 export async function incrementStreak(profile: Profile): Promise<{
   newStreakDays: number;
   newMultiplier: number;
+  newlyUnlockedAchievements: AchievementDef[];
 }> {
   const supabase = createClient();
   const today = getToday();
@@ -240,6 +251,7 @@ export async function incrementStreak(profile: Profile): Promise<{
     return {
       newStreakDays: profile.streak_days,
       newMultiplier: profile.streak_multiplier,
+      newlyUnlockedAchievements: [],
     };
   }
 
@@ -247,10 +259,8 @@ export async function incrementStreak(profile: Profile): Promise<{
   let newStreakDays: number;
 
   if (profile.last_active_date === yesterday || profile.streak_days === 0) {
-    // Continuing streak or starting fresh
     newStreakDays = profile.streak_days + 1;
   } else {
-    // Gap > 1 day and no freeze caught it — start at 1
     newStreakDays = 1;
   }
 
@@ -265,7 +275,9 @@ export async function incrementStreak(profile: Profile): Promise<{
     })
     .eq("id", profile.id);
 
-  return { newStreakDays, newMultiplier };
+  const newlyUnlockedAchievements = await checkAndAwardStreakAchievements(newStreakDays);
+
+  return { newStreakDays, newMultiplier, newlyUnlockedAchievements };
 }
 
 // ============================================

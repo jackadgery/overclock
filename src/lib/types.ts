@@ -92,6 +92,8 @@ export interface MoodLog {
   logged_at: string;
   energy: EnergyLevel | null;
   motivation: MotivationLevel | null;
+  energy_value?: number | null;
+  motivation_value?: number | null;
   was_skipped: boolean;
 }
 
@@ -152,6 +154,13 @@ export interface Spec {
   respec_token_available: boolean;
   token_earned_at: string | null;
   created_at: string;
+}
+
+export interface SpecOption {
+  spec_name: string;
+  description: string;
+  focus_areas: string[];
+  primary_stats: StatName[];
 }
 
 export interface SpecHistory {

@@ -1,8 +1,10 @@
 import { createClient } from "@/lib/supabase/client";
 import { calculateXp, xpRequiredForLevel } from "@/lib/xp";
 import { incrementStreak, checkAndAwardFreeze } from "@/lib/streak";
-import { getUnlockedNodeNames, getUnlockedSpecNames, checkAndUnlockSpecialisations } from "@/lib/db";
+import { getUnlockedNodeNames, getUnlockedSpecNames, checkAndUnlockSpecialisations, getActiveSpec } from "@/lib/db";
 import { computeNodeMultiplier, computeDrFloor, computeSpecMultiplier } from "@/lib/skill-tree";
+import { checkAndAwardQuestAchievements } from "@/lib/achievement-engine";
+import type { AchievementDef } from "@/lib/achievements";
 import type { Quest, Profile, Stat } from "@/lib/types";
 
 interface CompleteQuestInput {
@@ -28,6 +30,7 @@ interface CompleteQuestResult {
   newMultiplier: number;
   freezeAwarded: boolean;
   newlyUnlockedSpecs: string[];
+  newlyUnlockedAchievements: AchievementDef[];
 }
 
 export async function completeQuest(
@@ -41,19 +44,30 @@ export async function completeQuest(
   if (!stat) throw new Error(`Stat ${quest.stat} not found`);
 
   // Increment streak first (so the multiplier applies to this quest)
-  const { newStreakDays, newMultiplier } = await incrementStreak(profile);
+  const { newStreakDays, newMultiplier, newlyUnlockedAchievements: streakAchievements } =
+    await incrementStreak(profile);
 
   // Check for freeze award
   const freezeAwarded = await checkAndAwardFreeze(profile.id, newStreakDays);
 
-  // Fetch skill tree bonuses
-  const [unlockedNodes, unlockedSpecs] = await Promise.all([
+  // Fetch skill tree bonuses + active spec
+  const [unlockedNodes, unlockedSpecs, activeSpec] = await Promise.all([
     getUnlockedNodeNames(),
     getUnlockedSpecNames(),
+    getActiveSpec(),
   ]);
   const nodeMultiplier = computeNodeMultiplier(unlockedNodes, quest.stat, quest.logging_mode);
-  const drFloor = computeDrFloor(unlockedNodes, unlockedSpecs, quest.stat);
-  const specMultiplier = computeSpecMultiplier(unlockedSpecs, quest.stat);
+  const baseDrFloor = computeDrFloor(unlockedNodes, unlockedSpecs, quest.stat);
+
+  // Active spec: +1.15× and DR floor raised to 0.35 on primary stats
+  const specAligned =
+    activeSpec !== null &&
+    (activeSpec.primary_stats as string[]).includes(quest.stat);
+  const drFloor = specAligned ? Math.max(baseDrFloor, 0.35) : baseDrFloor;
+
+  // Combine cross-stat specialisation multiplier with active spec bonus
+  const crossStatMultiplier = computeSpecMultiplier(unlockedSpecs, quest.stat);
+  const specMultiplier = crossStatMultiplier * (specAligned ? 1.15 : 1.0);
 
   // Calculate XP using the updated streak
   const xpResult = calculateXp({
@@ -149,6 +163,23 @@ export async function completeQuest(
     ? await checkAndUnlockSpecialisations(updatedStats)
     : [];
 
+  // Check and award achievements
+  const newlyUnlockedAchievements = await checkAndAwardQuestAchievements({
+    stat: quest.stat,
+    decayFactor: xpResult.decayFactor,
+    newStatLevel,
+    allStats: updatedStats.map((s) => ({ stat_name: s.stat_name, level: s.level })),
+    xpEarned: xpResult.finalXp,
+    hourOfDay: new Date().getHours(),
+    newCharLevel,
+  });
+
+  // Merge streak achievements from incrementStreak
+  const allUnlocked = [
+    ...newlyUnlockedAchievements,
+    ...(streakAchievements ?? []),
+  ];
+
   return {
     xpEarned: xpResult.finalXp,
     statLevelUp,
@@ -160,5 +191,6 @@ export async function completeQuest(
     newMultiplier,
     freezeAwarded,
     newlyUnlockedSpecs,
+    newlyUnlockedAchievements: allUnlocked,
   };
 }

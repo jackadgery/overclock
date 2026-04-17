@@ -9,6 +9,7 @@ import {
   type StaticNode,
 } from "@/lib/skill-tree";
 import { STAT_INFO, type StatName, type Stat } from "@/lib/types";
+import { SpecPanel } from "@/components/spec-panel";
 
 const STAT_ORDER: StatName[] = ["STR", "END", "DEX", "INT", "WIS", "CHA"];
 
@@ -80,6 +81,9 @@ export default function SkillsPage() {
           <div className="text-xs text-oc-cyan/50 mb-1">SYS.NODES // SKILL MATRIX</div>
           <h1 className="text-lg font-bold text-oc-cyan tracking-wider">NODES</h1>
         </div>
+
+        {/* Spec */}
+        <SpecPanel />
 
         {/* Flash */}
         {flashMessage && (

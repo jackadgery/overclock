@@ -7,6 +7,7 @@ const NAV_ITEMS = [
   { href: "/dashboard", label: "SYS", icon: "◈" },
   { href: "/quests", label: "MISSIONS", icon: "⬡" },
   { href: "/skills", label: "NODES", icon: "◆" },
+  { href: "/achievements", label: "RECORDS", icon: "◇" },
 ];
 
 export function NavBar() {
